@@ -5,9 +5,10 @@ from agent.core.loops.base import AgentDependencies, BaseAgentLoop
 
 
 class AgentLoop(BaseAgentLoop):
-    """Цикл «модель -> tool calls -> модель», пока не придёт текстовый ответ.
+    """
+    Цикл «модель -> tool calls -> модель», пока не придёт текстовый ответ.
 
-    Останавливается на finish_reason == "stop" с непустым тексте,
+    Останавливается на finish_reason == "stop" с непустым текстом,
     на content_filter или после max_round итераций. История сохраняется
     в finally — даже при падении.
     """
@@ -33,39 +34,36 @@ class AgentLoop(BaseAgentLoop):
             for _ in range(self.max_round):
                 response = await dependencies.llm.chat(messages=messages, tools=dependencies.tools.schemas())
 
-                msg = response["message"]
-                finish = response["finish_reason"]
+                finish = response.finish_reason
+                text = response.content.strip()
 
-                calls = msg.get("tool_calls") or []
-                text = (msg.get("content") or "").strip()
-                if calls:
-                    clean: list[dict] = []
-                    messages.append({"role": "assistant", "content": msg.get("content"), "tool_calls": clean})
-                    for call in calls:
-                        func = call["function"]
-                        clean.append(
-                            {
-                                "id": call["id"],
-                                "type": "function",
-                                "function": {"name": func["name"], "arguments": func["arguments"]},
-                            }
-                        )
-                        try:
-                            args = json.loads(func.get("arguments") or "{}")
-                        except json.JSONDecodeError:
-                            messages.append(
+                if response.tool_calls:
+                    messages.append(
+                        {
+                            "role": "assistant",
+                            "content": response.content or None,
+                            "tool_calls": [
                                 {
-                                    "role": "tool",
-                                    "tool_call_id": call["id"],
-                                    "content": f"Ошибка: невалидный JSON аргументов: {func.get('arguments')}",
+                                    "id": call.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": call.name,
+                                        "arguments": json.dumps(call.arguments, ensure_ascii=False),
+                                    },
                                 }
-                            )
-                            continue
-                        result = await dependencies.tools.execute(func["name"], args)
-                        messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+                                for call in response.tool_calls
+                            ],
+                        }
+                    )
+                    for call in response.tool_calls:
+                        result = await dependencies.tools.execute(call.name, call.arguments)
+                        if result.is_error:
+                            pass  # TODO: Добавить логгирование
+                        messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
                     continue
 
                 messages.append({"role": "assistant", "content": text or None})
+
                 if finish == "stop" and text:
                     return text
 

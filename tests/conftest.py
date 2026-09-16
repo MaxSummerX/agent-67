@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import pytest
 
-from agent.core import Agent, BaseLLM, BaseLLMConfig, BaseTool
+from agent.core import Agent, BaseLLM, BaseLLMConfig, BaseTool, ChatResponse, ToolResult
 from agent.core.context.builder import ContextBuilder
 from agent.core.loops.base import AgentDependencies
 from agent.core.loops.loop import AgentLoop
@@ -19,12 +19,14 @@ class FakeLLM(BaseLLM):
     Запоминает последнюю историю сообщений — для проверок содержимого запросов к модели.
     """
 
-    def __init__(self, script: list[dict]) -> None:
+    def __init__(self, script: list[ChatResponse]) -> None:
         super().__init__(BaseLLMConfig("fake", "fake", "fake"))
         self.script = list(script)
         self.last_messages: list[dict] = []
 
-    async def chat(self, messages: list[dict], *, tools: list[dict] | None = None, tool_choice: str = "auto") -> dict:
+    async def chat(
+        self, messages: list[dict], *, tools: list[dict] | None = None, tool_choice: str = "auto"
+    ) -> ChatResponse:
         self.last_messages = messages
         return self.script.pop(0)
 
@@ -40,26 +42,20 @@ class UpperTool(BaseTool):
     def description(self) -> str:
         return "Возвращает текст заглавными буквами"
 
-    def schema(self) -> dict:
+    @property
+    def parameters(self) -> dict:
         return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {"text": {"type": "string"}},
-                    "required": ["text"],
-                },
-            },
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
         }
 
-    async def execute(self, args: dict) -> str:
-        return str(args["text"]).upper()
+    async def execute(self, args: dict) -> ToolResult:
+        return ToolResult(str(args["text"]).upper())
 
 
 @pytest.fixture
-def fake_llm_factory() -> Callable[[list[dict]], FakeLLM]:
+def fake_llm_factory() -> Callable[[list[ChatResponse]], FakeLLM]:
     """Фабрика LLM с заданным сценарием ответов."""
     return FakeLLM
 

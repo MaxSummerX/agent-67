@@ -6,9 +6,10 @@ import ssl
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
+from typing import Any
 from urllib.parse import urlparse
 
-from agent.core import BaseTool
+from agent.core import BaseTool, ToolResult
 
 
 # Сети, куда агенту ходить нельзя
@@ -130,32 +131,30 @@ class FetchURLTool(BaseTool):
     def description(self) -> str:
         return "Скачивает HTML-страницу по URL и возвращает извлечённый читаемый текст."
 
-    def schema(self) -> dict:
+    @property
+    def parameters(self) -> dict[str, Any]:
         return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "url": {
-                            "type": "string",
-                            "description": "Полный URL, начинающийся с http:// или https://",
-                        },
-                    },
-                    "required": ["url"],
-                    "additionalProperties": False,
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Полный URL, начинающийся с http:// или https://",
                 },
             },
+            "required": ["url"],
+            "additionalProperties": False,
         }
 
-    async def execute(self, args: dict) -> str:
+    async def execute(self, args: dict) -> ToolResult:
         """Валидирует url и скачивает страницу в отдельном потоке."""
         url = args.get("url")
         if not url:
-            return "Ошибка: отсутствует обязательный параметр 'url'. Повтори вызов, передав url."
-        return await asyncio.to_thread(self.fetch_url, url)
+            return ToolResult.error("Ошибка: отсутствует обязательный параметр 'url'. Повтори вызов, передав url.")
+        try:
+            content = await asyncio.to_thread(self.fetch_url, url)
+        except Exception as e:
+            return ToolResult.error(f"Ошибка скачивания {url}: {e}")
+        return ToolResult(content)
 
     @staticmethod
     def fetch_url(url: str) -> str:

@@ -1,8 +1,10 @@
 import asyncio
+import json
 
 from httpx2 import AsyncClient, HTTPStatusError
 
 from agent.core import BaseLLM, BaseLLMConfig
+from agent.core.llm.base import ChatResponse, ToolCall
 
 
 class OpenRouterConfig(BaseLLMConfig):
@@ -38,8 +40,8 @@ class OpenRouterLLM(BaseLLM):
         *,
         tools: list[dict] | None = None,
         tool_choice: str = "auto",
-    ) -> dict:
-        """Отправляет запрос, возвращает {"message": ..., "finish_reason": ...}."""
+    ) -> ChatResponse:
+        """Отправляет запрос, возвращает ChatResponse с текстом и/или вызовами инструментов."""
 
         payload = {"model": self.config.model, "messages": messages}
         headers = {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
@@ -59,10 +61,7 @@ class OpenRouterLLM(BaseLLM):
 
                 result = response.json()
 
-                return {
-                    "message": result["choices"][0]["message"],
-                    "finish_reason": result["choices"][0]["finish_reason"],
-                }
+                return self._parse_response(result)
             except HTTPStatusError as e:
                 retryable = e.response.status_code in self.RETRYABLE_STATUSES
                 if not retryable or attempt == self.RETRIES:
@@ -74,3 +73,26 @@ class OpenRouterLLM(BaseLLM):
                 await asyncio.sleep(self.BASE_DELAY * 2**attempt)
 
         raise AssertionError("unreachable")
+
+    @staticmethod
+    def _parse_response(data: dict) -> ChatResponse:
+        """Разбирает сырой JSON OpenAI-формата в ChatResponse; невалидный JSON аргументов становится {}."""
+        choice = data.get("choices", [{}])[0]
+        message = choice.get("message", {})
+
+        calls: list[ToolCall] = []
+        for raw in message.get("tool_calls") or []:
+            func = raw.get("function", {})
+            try:
+                args = json.loads(func.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            calls.append(ToolCall(id=raw.get("id", ""), name=func.get("name", ""), arguments=args))
+
+        return ChatResponse(
+            content=message.get("content") or "",
+            tool_calls=calls,
+            finish_reason=choice.get("finish_reason"),
+            model=data.get("model"),
+            usage=data.get("usage"),
+        )
