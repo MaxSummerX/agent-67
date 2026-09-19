@@ -1,4 +1,4 @@
-from agent.core.loops.base import AgentDependencies, BaseAgentLoop
+from agent.core.loops.base import AgentDependencies, BaseAgentLoop, UsageStats
 
 
 class Agent:
@@ -12,6 +12,6 @@ class Agent:
         self.loop = loop
         self.dependencies = dependencies
 
-    async def run(self, message: str, conversation_id: str) -> str:
+    async def run(self, message: str, conversation_id: str) -> tuple[str, UsageStats]:
         """Прогоняет сообщение через цикл агента и возвращает итоговый текст."""
         return await self.loop.run(message, self.dependencies, conversation_id)

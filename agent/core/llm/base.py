@@ -6,10 +6,19 @@ from typing import Any
 class BaseLLMConfig:
     """Параметры подключения к провайдеру: URL, модель, ключ."""
 
-    def __init__(self, base_url: str, model: str, api_token: str):
-        self.api_key = api_token
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        api_key: str = "",
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+    ):
+        self.api_key = api_key
         self.base_url = base_url
         self.model = model
+        self.temperature = temperature
+        self.max_tokens = max_tokens
 
 
 @dataclass
