@@ -4,6 +4,12 @@ from typing import Any
 from agent.core import BaseTool, ToolResult
 
 
+DEFAULT_MAX_RESULTS = 8
+MAX_RESULTS_LIMIT = 10
+DEFAULT_REGION = "ru-ru"
+SEARCH_TIMEOUT = 15.0
+
+
 class SearchWebTool(BaseTool):
     """Веб-поиск через ddgs: заголовки, ссылки и краткие описания."""
 
@@ -24,6 +30,21 @@ class SearchWebTool(BaseTool):
                     "type": "string",
                     "description": "Поисковый запрос",
                 },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Количество результатов (от 1 до 10)",
+                    "minimum": 1,
+                    "maximum": MAX_RESULTS_LIMIT,
+                },
+                "timelimit": {
+                    "type": "string",
+                    "description": "Ограничение по свежести: 'd' — день, 'w' — неделя, 'm' — месяц, 'y' — год. Опустите для без ограничения.",
+                    "enum": ["d", "w", "m", "y"],
+                },
+                "region": {
+                    "type": "string",
+                    "description": "Регион поиска в формате ISO, например 'ru-ru', 'us-en'. По умолчанию ru-ru.",
+                },
             },
             "required": ["query"],
             "additionalProperties": False,
@@ -34,21 +55,32 @@ class SearchWebTool(BaseTool):
         query = args.get("query")
         if not query:
             return ToolResult.error("Ошибка: отсутствует обязательный параметр 'query'. Повтори вызов, передав query.")
+        max_results = args.get("max_results", DEFAULT_MAX_RESULTS)
+        timelimit = args.get("timelimit")
+        region = args.get("region", DEFAULT_REGION)
         try:
-            content = await asyncio.to_thread(self.search_web, query)
+            content = await asyncio.to_thread(self.search_web, query, max_results, timelimit, region)
         except Exception as e:
             return ToolResult.error(f"Ошибка поиска по запросу {query!r}: {e}")
         return ToolResult(content)
 
     @staticmethod
-    def search_web(query: str) -> str:
+    def search_web(
+        query: str,
+        max_results: int = DEFAULT_MAX_RESULTS,
+        timelimit: str | None = None,
+        region: str = DEFAULT_REGION,
+    ) -> str:
         """Синхронный поиск через ddgs."""
         from ddgs import DDGS
 
         try:
             results: list[dict] = DDGS().text(
                 query,
-                max_results=8,
+                max_results=min(max(max_results, 1), MAX_RESULTS_LIMIT),
+                timelimit=timelimit,
+                region=region,
+                timeout=SEARCH_TIMEOUT,
             )
         except Exception as e:
             return f"Ошибка поиска: {e}"
