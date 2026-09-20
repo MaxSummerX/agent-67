@@ -1,7 +1,8 @@
 import asyncio
 import json
+from typing import Any
 
-from httpx2 import AsyncClient, HTTPStatusError
+from httpx2 import AsyncClient, HTTPStatusError, TimeoutException
 
 from agent.core import BaseLLM, BaseLLMConfig
 from agent.core.llm.base import ChatResponse, ToolCall
@@ -10,13 +11,8 @@ from agent.core.llm.base import ChatResponse, ToolCall
 class OpenRouterConfig(BaseLLMConfig):
     """Конфиг подключения к OpenRouter API."""
 
-    def __init__(
-        self,
-        base_url: str,
-        model: str,
-        api_key: str,
-    ) -> None:
-        super().__init__(base_url, model, api_key)
+    def __init__(self, base_url: str, model: str, api_key: str, temperature: float, max_tokens: int) -> None:
+        super().__init__(base_url, model, api_key, temperature, max_tokens)
 
 
 class OpenRouterLLM(BaseLLM):
@@ -33,6 +29,7 @@ class OpenRouterLLM(BaseLLM):
     ) -> None:
         super().__init__(config)
         self.http_client = http_client
+        self._cache_system_prompt = any(s in config.model.lower() for s in ("anthropic", "gemini", "qwen"))
 
     async def chat(
         self,
@@ -43,11 +40,38 @@ class OpenRouterLLM(BaseLLM):
     ) -> ChatResponse:
         """Отправляет запрос, возвращает ChatResponse с текстом и/или вызовами инструментов."""
 
-        payload = {"model": self.config.model, "messages": messages}
-        headers = {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/MaxSummerX/agent-67",
+            "X-Title": "agent-67",
+        }
 
         if tools:
             payload["tools"] = tools
+
+        if self._cache_system_prompt:
+            payload["messages"] = [
+                {
+                    **msg,
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": msg.get("content", ""),
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                }
+                if msg.get("role") == "system" and isinstance(msg.get("content"), str)
+                else msg
+                for msg in messages
+            ]
 
         for attempt in range(self.RETRIES + 1):
             try:
@@ -67,15 +91,14 @@ class OpenRouterLLM(BaseLLM):
                 if not retryable or attempt == self.RETRIES:
                     raise
                 await asyncio.sleep(self.BASE_DELAY * 2**attempt)
-            except ConnectionError as e:
+            except (ConnectionError, TimeoutException):
                 if attempt == self.RETRIES:
-                    raise e
+                    raise
                 await asyncio.sleep(self.BASE_DELAY * 2**attempt)
 
         raise AssertionError("unreachable")
 
-    @staticmethod
-    def _parse_response(data: dict) -> ChatResponse:
+    def _parse_response(self, data: dict[str, Any]) -> ChatResponse:
         """Разбирает сырой JSON OpenAI-формата в ChatResponse; невалидный JSON аргументов становится {}."""
         choice = data.get("choices", [{}])[0]
         message = choice.get("message", {})
