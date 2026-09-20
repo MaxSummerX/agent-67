@@ -11,7 +11,7 @@ class ContextBuilder(BaseContextBuilder):
         self.max_history = max_history
 
     async def build_context(self, data: ContextInput) -> ContextOutput:
-        system = f"Текущие дата и время сервера: {datetime.now():%Y-%m-%d %H:%M}.\n{self.prompt}"
+        system = self.prompt
         if data.memories:
             system += "\n" + "\n".join(memory["content"] for memory in data.memories)
 
@@ -24,6 +24,9 @@ class ContextBuilder(BaseContextBuilder):
             [
                 {"role": "system", "content": system},
                 *history,
-                {"role": "user", "content": data.message},
+                {
+                    "role": "user",
+                    "content": f"[ Текущие дата и время сообщения: {datetime.now():%Y-%m-%d %H:%M}]\n{data.message}",
+                },
             ]
         )
