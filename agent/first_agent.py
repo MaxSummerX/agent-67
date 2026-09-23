@@ -1,48 +1,93 @@
+"""Терминальный чат с агентом: цикл диалога, команды, обработка ошибок."""
+
 import asyncio
 import time
-from pathlib import Path
 
 import httpx2
-from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.rule import Rule
+from rich.text import Text
 
 from agent.composition import create_agent
-from agent.core import UsageStats
-from agent.settings import MODEL
+from agent.ui import (
+    HISTORY_DIR,
+    assistant_bubble,
+    console,
+    format_usage,
+    gradient_banner,
+    print_conversation,
+    print_help,
+    status_line,
+)
 
 
-console = Console()
-
-HISTORY_DIR = Path("history")
+def ask_user(conversation_id: str) -> str:
+    """Спрашивает ввод пользователя и эхом печатает его панелью 'Вы'"""
+    console.print()
+    stamp = time.strftime("%H:%M:%S")
+    user_input: str = Prompt.ask(f"[dim][{stamp}][/dim] [bold cyan]Беседа {conversation_id} >>> [/bold cyan]").strip()
+    console.print(
+        Panel(
+            user_input,
+            title="[bold cyan]Вы[/bold cyan]",
+            title_align="left",
+            border_style="cyan",
+            expand=False,
+        )
+    )
+    console.print()
+    return user_input
 
 
 def new_conversation_id() -> str:
+    """Генерирует id беседы по времени."""
     return time.strftime("conv_%Y%m%d_%H%M%S")
 
 
-def format_usage(data: UsageStats) -> str:
-    """Строка статистики токенов/кэша для отображения."""
-    return (
-        f"[dim]📊 Токены: input={data.prompt_tokens} "
-        f"(кэш✅={data.cached} [{data.cache_hit_pct:.0f}%], write={data.cache_write}) | "
-        f"output={data.completion_tokens}[/dim]"
-    )
+def handle_command(user_input: str, conversation_id: str) -> str | None:
+    """Обрабатывает команду /<команда>; возвращает id беседы, None - если введено обычное сообщение."""
+    if user_input == "/new":
+        cid = new_conversation_id()
+        console.print(Rule(f"{cid}", style="cyan"))
+        return cid
+    if user_input in ("/help", "/?"):
+        print_help()
+        return conversation_id
+    if user_input == "/list":
+        print_conversation()
+        return conversation_id
+    if user_input.startswith("/open"):
+        parts = user_input.split(maxsplit=1)
+        if len(parts) < 2:
+            console.print(Text("Использование: /open <имя_беседы> (см. /list)", style="yellow"))
+            return conversation_id
+        cid = parts[1].strip()
+        if not (HISTORY_DIR / f"{cid}.json").exists():
+            console.print(Text(f"Беседа не найдена: {cid} (см. /list)", style="yellow"))
+            return conversation_id
+        console.print(Rule(f"{cid}", style="cyan"))
+        return cid
+    if user_input.startswith("/"):
+        console.print(Text("Неизвестная команда, см. /help", style="yellow"))
+        return conversation_id
+    return None
 
 
-def print_conversation() -> None:
-    """Список сохранённых бесед из history/."""
-    if not HISTORY_DIR.exists():
-        console.print("Сохранённых бесед нет.")
-        return
-    ids = sorted(conv.stem for conv in HISTORY_DIR.glob("*.json"))
-    if not ids:
-        console.print("Сохранённых бесед нет.")
-        return
-    for conv_id in ids:
-        console.print(f"[blue] -> {conv_id}[/blue]")
+def print_api_error(e: httpx2.HTTPError) -> None:
+    """Печатает ошибку API понятным текстом вместо трейсбека."""
+    if isinstance(e, httpx2.HTTPStatusError):
+        status = e.response.status_code
+        if status == 429:
+            console.print(
+                Text("Лимит запросов (429), повторы не помогли. Подождите или смените MODEL в .env", style="red")
+            )
+        elif status == 401:
+            console.print(Text("Неверный API_KEY. Проверьте .env.", style="red"))
+        else:
+            console.print(Text(f"Ошибка API: {status}", style="red"))
+    else:
+        console.print(Text(f"Сетевая ошибка: {type(e).__name__}: {e}", style="red"))
 
 
 async def main() -> None:
@@ -53,87 +98,50 @@ async def main() -> None:
         /new            - начать новую беседу
         /list           - список сохранённых бесед
         /open <имя>     - продолжить беседу
-        /exit / Ctrl+D   - выход
+        /help           - справка по командам
+        /exit / Ctrl+D  - выход
     """
+    gradient_banner()
+
     async with httpx2.AsyncClient(timeout=httpx2.Timeout(120)) as http_client:
         agent = create_agent(http_client, True, "workspace")
         conversation_id = new_conversation_id()
-        console.print(
-            Panel(
-                f"[bold]agent-67[/bold] | модель: [cyan]{MODEL}[/cyan] | workspace/\n\n"
-                f"Беседа: {conversation_id}. /new, /list, /open <имя>, /exit — выход."
-            )
-        )
+        status_line(conversation_id)
+
         while True:
             try:
-                console.print()
-                stamp = time.strftime("%H:%M:%S")
-                user_input = Prompt.ask(
-                    f"[dim][{stamp}][/dim] [bold cyan]Беседа {conversation_id} >>> [/bold cyan]"
-                ).strip()
-                console.print()
+                user_input = ask_user(conversation_id)
             except EOFError:
                 break
             except KeyboardInterrupt:
-                console.print("\nДо свидания!")
+                console.print(Text("\nДо свидания!", style="dim"))
                 break
 
             if user_input.lower() in ("/exit", "/quit", "/выход", "/q"):
-                console.print(Panel("До свидания!"))
+                console.print(Text("До свидания! 👋", style="dim"))
                 break
 
             if not user_input:
                 continue
 
-            if user_input == "/new":
-                conversation_id = new_conversation_id()
-                console.print(f"Новая беседа: {conversation_id}")
-                continue
-            if user_input == "/list":
-                print_conversation()
-                continue
-            if user_input.startswith("/open"):
-                parts = user_input.split(maxsplit=1)
-                if len(parts) < 2:
-                    console.print("Использование: /open <имя_беседы> (см. /list)")
-                    continue
-                cid = parts[1].strip()
-                if not (HISTORY_DIR / f"{cid}.json").exists():
-                    console.print(f"Беседа не найдена: {cid} (см. /list)")
-                    continue
-                conversation_id = cid
-                console.print(f"Продолжаем беседу: {conversation_id}")
+            handled = handle_command(user_input, conversation_id)
+            if handled is not None:
+                conversation_id = handled
                 continue
 
-            if user_input.startswith("/"):
-                console.print("Неизвестная команда. Доступны: /new, /list, /open <имя>")
-                continue
             try:
                 started = time.perf_counter()
-                with console.status("[magenta]Модель думает...[/magenta]", spinner="dots"):
+                with console.status(Text("Модель думает…", style="magenta"), spinner="dots"):
                     answer, usage = await agent.run(user_input, conversation_id)
                 elapsed = time.perf_counter() - started
 
-            except httpx2.HTTPStatusError as e:
-                status = e.response.status_code
-                if status == 429:
-                    console.print(
-                        "[red]Лимит запросов модели (429), повторы не помогли. Подождите минуту или смените MODEL в .env[/red]"
-                    )
-                elif status == 401:
-                    console.print("[red]Неверный API_KEY. Проверьте .env.[/red]")
-                else:
-                    console.print(f"[red]Ошибка API: {status}[/red]")
-                continue
             except httpx2.HTTPError as e:
-                console.print(f"[red]Сетевая ошибка: {type(e).__name__}: {e}[/red]")
+                print_api_error(e)
                 continue
 
-            console.print(Rule("[bold magenta]Cache stats[/bold magenta]", style="magenta"))
-            console.print(format_usage(usage))
-            console.print(f"[dim]⏱ {time.strftime('%H:%M:%S')} — агент ответил за {elapsed:.0f} сек[/dim]")
-            console.print(Panel(Markdown(answer), title="Ответ", border_style="cyan"))
+            console.print(format_usage(usage, elapsed))
             console.print()
+            assistant_bubble(answer)
 
 
 if __name__ == "__main__":
