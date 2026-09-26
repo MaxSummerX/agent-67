@@ -4,9 +4,11 @@ from httpx2 import AsyncClient
 
 from agent.core import Agent, AgentDependencies, AgentLoop, BaseAgentLoop, BaseLLM, ToolRegistry
 from agent.core.context.builder import ContextBuilder
+from agent.core.decision import BaseDecisionEngine
 from agent.core.memory.null_memory import NullMemory
 from agent.infrastructure.conversations.in_memory import InMemoryConversation
 from agent.infrastructure.conversations.json_store import JSONConversationStore
+from agent.infrastructure.decision.jev import JevEngine
 from agent.infrastructure.llm.giga_chat import GigaChatClient, GigaChatConfig
 from agent.infrastructure.llm.openai_compatible import OpenAICompatibleConfig, OpenAICompatibleLLM
 from agent.infrastructure.tools.fetch_url import FetchURLTool
@@ -20,6 +22,8 @@ from agent.settings import (
     GIGACHAT_CREDENTIALS,
     GIGACHAT_MODEL,
     GIGACHAT_SCOPE,
+    JEV_API_KEY,
+    JEV_BASE_URL,
     MODEL,
     OLLAMA_BASE_URL,
     OLLAMA_MODEL,
@@ -85,17 +89,23 @@ def create_agent(
     workspace: str | Path | None = None,
     loop: BaseAgentLoop | None = None,
     provider: str | None = None,
+    decision_engine: BaseDecisionEngine | None = None,
 ) -> Agent:
     """
     Точка сборки агента: связывает LLM, инструменты, память и историю.
 
     persist=True - сохранять диалоги в JSON (./history), иначе - только в памяти.
     provider - имя LLM-провайдера из реестра create_llm; по умолчанию open_router.
+    decision_engine - движок типизированных решений.
     """
     workspace = Path(workspace or "workspace").resolve()
     workspace.mkdir(parents=True, exist_ok=True)
 
     fs_args = {"workspace": workspace, "allowed_dir": workspace}
+
+    decision_engine = decision_engine or (
+        JevEngine(http_client=http_client, api_key=JEV_API_KEY, base_url=JEV_BASE_URL) if JEV_API_KEY else None
+    )
 
     llm = create_llm(provider or "open_router", http_client)
 
@@ -120,6 +130,7 @@ def create_agent(
         context=context,
         memory=memory,
         conversations=conversations,
+        decision_engine=decision_engine,
     )
 
     loop = loop or AgentLoop(max_rounds=25)

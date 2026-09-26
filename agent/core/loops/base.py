@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 from agent.core.context.base import BaseContextBuilder
 from agent.core.conversations.base import BaseConversationStore
+from agent.core.decision import BaseDecisionEngine
 from agent.core.llm.base import BaseLLM
 from agent.core.memory.base import BaseMemory
 from agent.core.tools.registry import ToolRegistry
@@ -24,13 +25,19 @@ class UsageStats:
 
 @dataclass
 class AgentDependencies:
-    """Все зависимости агента: модель, инструменты, контекст, память, история."""
+    """
+    Все зависимости агента: модель, инструменты, контекст, память, история.
+
+    decision_engine - ось типизированных решений (System One), опциональна:
+    None -> все точки потребления деградируют в прежнее поведение.
+    """
 
     llm: BaseLLM
     tools: ToolRegistry
     context: BaseContextBuilder
     memory: BaseMemory
     conversations: BaseConversationStore
+    decision_engine: BaseDecisionEngine | None = None
 
 
 class BaseAgentLoop(ABC):

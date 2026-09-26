@@ -29,4 +29,6 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1/c
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3.5:4b")
 GIGACHAT_MODEL = os.environ.get("GIGACHAT_MODEL", "GigaChat-3-Lightning")
 GIGACHAT_SCOPE = os.environ.get("GIGACHAT_SCOPE", "GIGACHAT_API_PERS")
+JEV_API_KEY = os.environ.get("JEV_API_KEY", "")
+JEV_BASE_URL = os.environ.get("JEV_BASE_URL", "https://api.typesafe.ai/v1/systemone")
 PROVIDER = os.environ.get("PROVIDER", "open_router")
