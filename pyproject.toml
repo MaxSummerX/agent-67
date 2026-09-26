@@ -1,6 +1,6 @@
 [project]
 name = "agent-67"
-version = "0.3.0"
+version = "0.4.0"
 description = "Минималистичный LLM-агент на чистом Python: свой цикл tool-calling, OpenRouter/Ollama/GigaChat, без фреймворков"
 readme = "README.md"
 authors = [
