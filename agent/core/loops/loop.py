@@ -9,8 +9,8 @@ class AgentLoop(BaseAgentLoop):
     Цикл «модель -> tool calls -> модель», пока не придёт текстовый ответ.
 
     Останавливается на finish_reason == "stop" с непустым текстом,
-    на content_filter или после max_rounds итераций. История сохраняется
-    в finally — даже при падении.
+    на content_filter или после max_rounds итераций.
+    Каждое сообщение записывается в историю в момент появления (append-only).
     """
 
     def __init__(self, max_rounds: int = 25) -> None:
@@ -34,60 +34,63 @@ class AgentLoop(BaseAgentLoop):
 
         messages = context.messages
 
-        usage = UsageStats()
-        try:
-            for _ in range(self.max_rounds):
-                response = await dependencies.llm.chat(messages=messages, tools=dependencies.tools.schemas())
-                usage = self.parse_usage(response.usage)
-
-                finish = response.finish_reason
-                text = response.content.strip()
-
-                if response.tool_calls:
-                    messages.append(
-                        {
-                            "role": "assistant",
-                            "content": response.content or "",
-                            "tool_calls": [
-                                {
-                                    "id": call.id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": call.name,
-                                        "arguments": json.dumps(call.arguments, ensure_ascii=False),
-                                    },
-                                }
-                                for call in response.tool_calls
-                            ],
-                        }
-                    )
-                    for call in response.tool_calls:
-                        result = await dependencies.tools.execute(call.name, call.arguments)
-                        if result.is_error:
-                            pass  # наблюдение (observability): счётчик/логгинг появятся вместе с телеметрией
-                        messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
-                    continue
-
-                messages.append({"role": "assistant", "content": text or ""})
-
-                if finish == "stop" and text:
-                    return text, usage
-
-                if finish == "content_filter":
-                    return text or "[Ответ заблокирован фильтром провайдера]", usage
-
-                messages.append(
-                    {"role": "user", "content": "Ответ пустой или обрезан. Заверши задачу и дай полный текст."}
-                )
-
-            return f"Не удалось выполнить задачу за {self.max_rounds} кругов.", usage
-
-        finally:
+        async def add_message() -> None:
+            """Записывает последнее сообщение в историю."""
             if conversation_id:
-                await dependencies.conversations.save(
-                    conversation_id,
-                    messages,
+                await dependencies.conversations.append(conversation_id, [messages[-1]])
+
+        await add_message()
+
+        usage = UsageStats()
+        for _ in range(self.max_rounds):
+            response = await dependencies.llm.chat(messages=messages, tools=dependencies.tools.schemas())
+            usage = self.parse_usage(response.usage)
+
+            finish = response.finish_reason
+            text = response.content.strip()
+
+            if response.tool_calls:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": response.content or "",
+                        "tool_calls": [
+                            {
+                                "id": call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": call.name,
+                                    "arguments": json.dumps(call.arguments, ensure_ascii=False),
+                                },
+                            }
+                            for call in response.tool_calls
+                        ],
+                    }
                 )
+                await add_message()
+
+                for call in response.tool_calls:
+                    result = await dependencies.tools.execute(call.name, call.arguments)
+                    if result.is_error:
+                        pass  # наблюдение (observability): счётчик/логгинг появятся вместе с телеметрией
+                    messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
+                    await add_message()
+                continue
+
+            messages.append({"role": "assistant", "content": text or ""})
+
+            if finish == "stop" and text:
+                await add_message()
+                return text, usage
+
+            if finish == "content_filter":
+                await add_message()
+                return text or "[Ответ заблокирован фильтром провайдера]", usage
+
+            messages.append({"role": "user", "content": "Ответ пустой или обрезан. Заверши задачу и дай полный текст."})
+            await add_message()
+
+        return f"Не удалось выполнить задачу за {self.max_rounds} кругов.", usage
 
     @staticmethod
     def parse_usage(usage: dict | None) -> UsageStats:

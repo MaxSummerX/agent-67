@@ -6,19 +6,19 @@ from agent.core.context.base import BaseContextBuilder, ContextInput, ContextOut
 class ContextBuilder(BaseContextBuilder):
     """Собирает контекст: системный промпт с текущей датой, память и история диалога."""
 
-    def __init__(self, prompt: str, max_history: int = 100) -> None:
+    def __init__(self, prompt: str) -> None:
         self.prompt = prompt
-        self.max_history = max_history
 
     async def build_context(self, data: ContextInput) -> ContextOutput:
         system = self.prompt
         if data.memories:
             system += "\n" + "\n".join(memory["content"] for memory in data.memories)
 
-        history = [message for message in data.conversation if message["role"] != "system"][-self.max_history :]
+        start = 0
+        while start < len(data.conversation) and data.conversation[start]["role"] == "tool":
+            start += 1
 
-        while history and history[0]["role"] == "tool":
-            history.pop(0)
+        history = data.conversation[start:]
 
         return ContextOutput(
             [

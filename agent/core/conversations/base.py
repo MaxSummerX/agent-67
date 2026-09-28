@@ -13,3 +13,8 @@ class BaseConversationStore(ABC):
     async def save(self, conversation_id: str, data: list[dict]) -> None:
         """Полностью перезаписывает историю беседы."""
         ...
+
+    @abstractmethod
+    async def append(self, conversation_id: str, data: list[dict]) -> None:
+        """Добавляет сообщения в конец истории беседы"""
+        ...

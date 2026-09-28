@@ -31,6 +31,7 @@ from agent.settings import (
 
 
 _CACHEABLE = ("anthropic", "gemini", "qwen")
+MAX_HISTORY = 100
 
 
 def create_llm(provider: str, http_client: AsyncClient) -> BaseLLM:
@@ -121,8 +122,10 @@ def create_agent(
         ]
     )
     memory = NullMemory()
-    conversations = JSONConversationStore() if persist else InMemoryConversation()
-    context = ContextBuilder(prompt=SYSTEM_PROMPT, max_history=200)
+    conversations = (
+        JSONConversationStore(max_history=MAX_HISTORY) if persist else InMemoryConversation(max_history=MAX_HISTORY)
+    )
+    context = ContextBuilder(prompt=SYSTEM_PROMPT)
 
     dependencies = AgentDependencies(
         llm=llm,
