@@ -63,7 +63,7 @@ def handle_command(user_input: str, conversation_id: str) -> str | None:
             console.print(Text("Использование: /open <имя_беседы> (см. /list)", style="yellow"))
             return conversation_id
         cid = parts[1].strip()
-        if not (HISTORY_DIR / f"{cid}.json").exists():
+        if not (HISTORY_DIR / f"{cid}.jsonl").exists():
             console.print(Text(f"Беседа не найдена: {cid} (см. /list)", style="yellow"))
             return conversation_id
         console.print(Rule(f"{cid}", style="cyan"))

@@ -65,7 +65,7 @@ def print_conversation() -> None:
     if not HISTORY_DIR.exists():
         console.print(Text("Сохранённых бесед нет.", style="dim"))
         return
-    ids = sorted(conv.stem for conv in HISTORY_DIR.glob("*.json"))
+    ids = sorted(conv.stem for conv in HISTORY_DIR.glob("*.jsonl"))
     if not ids:
         console.print(Text("Сохранённых бесед нет.", style="dim"))
         return
