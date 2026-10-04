@@ -11,13 +11,14 @@
 - Цикл «модель -> инструменты -> модель» с ограничением раундов
 - Мультипровайдерность: OpenRouter и локальная Ollama говорят в OpenAI-формате, GigaChat - собственный function_call-диалект
 - Движок типизированных решений (Jev / System One). Опционален - без ключа агент работает как раньше
+- Профильная память (опционально): USER.md/SOUL.md из workspace дописываются в системный промпт, включается `memory_enabled=True`
 - Tool-calling в формате OpenAI
 - Инструменты: веб-поиск (ddgs), загрузка страниц (readability + HTML -> Markdown),
   работа с файлами (read/write/edit/list), shell (exec с safety guard)
 - CLI на rich: баннер, беседы `/new`, `/list`, `/open`, `/help`,
   панель статистики токенов/кэша/времени раунда
 - Prompt caching для anthropic/gemini/qwen, retry с бэкоффом на 429/5xx, таймауты и сетевые сбои
-- История диалогов: в памяти или в JSON-файлах
+- История диалогов: в памяти или append-only JSONL
 - Слоёная структура: `core` (интерфейсы) / `infrastructure` (реализации) / `composition` (сборка)
 
 ## Безопасность
@@ -131,6 +132,7 @@ agent/
     llm/openai_compatible.py # база OpenAI-совместимых провайдеров
     llm/giga_chat.py         # GigaChat: OAuth + конвертация форматов
     decision/jev.py          # JevEngine: Jev заперт здесь
+    memory/profile_memory.py # ProfileMemory: USER.md/SOUL.md в системном промпте
   composition/     # реестр провайдеров create_llm, точка сборки агента
   prompts/         # системный промпт
   ui.py            # rich-отображение CLI
