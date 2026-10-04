@@ -10,7 +10,7 @@ class ContextBuilder(BaseContextBuilder):
         self.prompt = prompt
 
     async def build_context(self, data: ContextInput) -> ContextOutput:
-        system = self.prompt
+        system = self.prompt + (f"\n{data.profile}" if data.profile else "")
         if data.memories:
             system += "\n" + "\n".join(memory["content"] for memory in data.memories)
 

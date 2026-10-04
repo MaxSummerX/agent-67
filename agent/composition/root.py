@@ -11,6 +11,7 @@ from agent.infrastructure.conversations.json_store import JSONConversationStore
 from agent.infrastructure.decision.jev import JevEngine
 from agent.infrastructure.llm.giga_chat import GigaChatClient, GigaChatConfig
 from agent.infrastructure.llm.openai_compatible import OpenAICompatibleConfig, OpenAICompatibleLLM
+from agent.infrastructure.memory.profile_memory import PROFILE_MEMORY_PROMPT, ProfileMemory
 from agent.infrastructure.tools.fetch_url import FetchURLTool
 from agent.infrastructure.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from agent.infrastructure.tools.shell import ExecTool
@@ -91,6 +92,7 @@ def create_agent(
     loop: BaseAgentLoop | None = None,
     provider: str | None = None,
     decision_engine: BaseDecisionEngine | None = None,
+    memory_enabled: bool = False,
 ) -> Agent:
     """
     Точка сборки агента: связывает LLM, инструменты, память и историю.
@@ -98,6 +100,7 @@ def create_agent(
     persist=True - сохранять диалоги в JSON (./history), иначе - только в памяти.
     provider - имя LLM-провайдера из реестра create_llm; по умолчанию open_router.
     decision_engine - движок типизированных решений.
+    memory_enabled - подключать профильную память (USER.md/SOUL.md из workspace и промпт для управления).
     """
     workspace = Path(workspace or "workspace").resolve()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -121,11 +124,11 @@ def create_agent(
             ListDirTool(**fs_args),
         ]
     )
-    memory = NullMemory()
+    memory = ProfileMemory(workspace) if memory_enabled else NullMemory()
     conversations = (
         JSONConversationStore(max_history=MAX_HISTORY) if persist else InMemoryConversation(max_history=MAX_HISTORY)
     )
-    context = ContextBuilder(prompt=SYSTEM_PROMPT)
+    context = ContextBuilder(prompt=SYSTEM_PROMPT + PROFILE_MEMORY_PROMPT if memory_enabled else SYSTEM_PROMPT)
 
     dependencies = AgentDependencies(
         llm=llm,

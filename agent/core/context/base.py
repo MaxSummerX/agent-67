@@ -9,6 +9,7 @@ class ContextInput:
     message: str
     memories: list[dict]
     conversation: list[dict]
+    profile: str = ""
 
 
 @dataclass

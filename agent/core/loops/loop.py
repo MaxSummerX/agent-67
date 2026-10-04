@@ -27,9 +27,10 @@ class AgentLoop(BaseAgentLoop):
             messages = await dependencies.conversations.load(conversation_id)
 
         memory = await dependencies.memory.search(message)
+        profile = await dependencies.memory.load_profile()
 
         context = await dependencies.context.build_context(
-            ContextInput(message=message, memories=memory, conversation=messages)
+            ContextInput(message=message, memories=memory, conversation=messages, profile=profile)
         )
 
         messages = context.messages

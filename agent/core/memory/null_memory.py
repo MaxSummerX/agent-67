@@ -9,3 +9,6 @@ class NullMemory(BaseMemory):
 
     async def add(self, data: dict) -> None:
         return
+
+    async def load_profile(self) -> str:
+        return ""

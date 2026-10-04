@@ -13,3 +13,8 @@ class BaseMemory(ABC):
     async def add(self, data: dict) -> None:
         """Сохраняет запись в память."""
         ...
+
+    @abstractmethod
+    async def load_profile(self) -> str:
+        """Возвращает постоянный профиль агента одним текстом."""
+        ...
