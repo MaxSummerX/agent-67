@@ -19,6 +19,8 @@
   панель статистики токенов/кэша/времени раунда
 - Prompt caching для anthropic/gemini/qwen, retry с бэкоффом на 429/5xx, таймауты и сетевые сбои
 - История диалогов: в памяти или append-only JSONL
+- Трейс цикла: сырые события (решения LLM, tool calls и полные output инструментов,
+  finish_reason, usage, временные метки, ошибки LLM/tool_execute) пишутся в append-only JSONL в `trace/`
 - Слоёная структура: `core` (интерфейсы) / `infrastructure` (реализации) / `composition` (сборка)
 
 ## Безопасность
@@ -126,7 +128,8 @@ async def guard_exec(
 ```
 agent/
   core/            # интерфейсы + цикл агента (tool-calling loop)
-    decision.py               # контракт движка решений
+    loops/                   # AgentLoop + TraceWriter-протокол
+    decision.py              # контракт движка решений
   infrastructure/  # LLM-клиенты, инструменты, хранилища истории
     llm/_http.py             # retry-транспорт
     llm/openai_compatible.py # база OpenAI-совместимых провайдеров
@@ -136,6 +139,8 @@ agent/
   composition/     # реестр провайдеров create_llm, точка сборки агента
   prompts/         # системный промпт
   ui.py            # rich-отображение CLI
+history/           # диалоги: по jsonl на беседу
+trace/             # трейсы цикла: сырые события с таймстемпами
 tests/
   bench_agent.py   # smoke-бенч на живом LLM
 ```
