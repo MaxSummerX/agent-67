@@ -1,4 +1,6 @@
 import json
+from time import time
+from typing import Any
 
 from agent.core.context.base import ContextInput
 from agent.core.loops.base import AgentDependencies, BaseAgentLoop, UsageStats
@@ -11,6 +13,7 @@ class AgentLoop(BaseAgentLoop):
     Останавливается на finish_reason == "stop" с непустым текстом,
     на content_filter или после max_rounds итераций.
     Каждое сообщение записывается в историю в момент появления (append-only).
+    Параллельно пишет трейс: сырые события цикла с отметкой времени.
     """
 
     def __init__(self, max_rounds: int = 25) -> None:
@@ -22,6 +25,13 @@ class AgentLoop(BaseAgentLoop):
         self, message: str, dependencies: AgentDependencies, conversation_id: str | None = None
     ) -> tuple[str, UsageStats]:
         """Обрабатывает сообщение, исполняет цепочки tool calls, возвращает ответ модели."""
+        trace_id = conversation_id or "no_session"
+        await self._trace(
+            dependencies,
+            trace_id,
+            event_type="user",
+            content=message,
+        )
         messages = []
         if conversation_id:
             messages = await dependencies.conversations.load(conversation_id)
@@ -41,15 +51,34 @@ class AgentLoop(BaseAgentLoop):
                 await dependencies.conversations.append(conversation_id, [messages[-1]])
 
         await add_message()
-
+        await self._trace(
+            dependencies,
+            trace_id,
+            event_type="context_built",
+            memories_found=len(memory),
+        )
         usage = UsageStats()
-        for _ in range(self.max_rounds):
-            response = await dependencies.llm.chat(messages=messages, tools=dependencies.tools.schemas())
+        for iteration in range(self.max_rounds):
+            try:
+                response = await dependencies.llm.chat(messages=messages, tools=dependencies.tools.schemas())
+            except Exception as exc:
+                await self._trace(dependencies, trace_id, event_type="error", stage="llm_chat", error=repr(exc))
+                raise
             usage = self.parse_usage(response.usage)
 
             finish = response.finish_reason
             text = response.content.strip()
 
+            await self._trace(
+                dependencies,
+                trace_id,
+                event_type="llm_response",
+                iteration=iteration,
+                finish_reason=finish,
+                text=response.content,
+                tool_calls=[{"name": c.name, "arguments": c.arguments} for c in response.tool_calls or []],
+                usage=usage.__dict__,
+            )
             if response.tool_calls:
                 messages.append(
                     {
@@ -71,9 +100,28 @@ class AgentLoop(BaseAgentLoop):
                 await add_message()
 
                 for call in response.tool_calls:
-                    result = await dependencies.tools.execute(call.name, call.arguments)
-                    if result.is_error:
-                        pass  # наблюдение (observability): счётчик/логгинг появятся вместе с телеметрией
+                    try:
+                        result = await dependencies.tools.execute(call.name, call.arguments)
+                    except Exception as exc:
+                        await self._trace(
+                            dependencies,
+                            trace_id,
+                            event_type="error",
+                            stage="tool_execute",
+                            tool=call.name,
+                            error=repr(exc),
+                        )
+                        raise
+                    await self._trace(
+                        dependencies,
+                        trace_id,
+                        event_type="tool_result",
+                        iteration=iteration,
+                        tool=call.name,
+                        arguments=call.arguments,
+                        output=str(result),
+                        is_error=result.is_error,
+                    )
                     messages.append({"role": "tool", "tool_call_id": call.id, "content": result})
                     await add_message()
                 continue
@@ -82,15 +130,26 @@ class AgentLoop(BaseAgentLoop):
 
             if finish == "stop" and text:
                 await add_message()
+                await self._trace(
+                    dependencies,
+                    trace_id,
+                    event_type="final",
+                    iteration=iteration,
+                )
                 return text, usage
 
             if finish == "content_filter":
                 await add_message()
+                await self._trace(
+                    dependencies, trace_id, event_type="blocked", iteration=iteration, reason="content_filter"
+                )
                 return text or "[Ответ заблокирован фильтром провайдера]", usage
 
             messages.append({"role": "user", "content": "Ответ пустой или обрезан. Заверши задачу и дай полный текст."})
             await add_message()
+            await self._trace(dependencies, trace_id, event_type="empty_response_retry", iteration=iteration)
 
+        await self._trace(dependencies, trace_id, event_type="max_rounds_exceeded")
         return f"Не удалось выполнить задачу за {self.max_rounds} кругов.", usage
 
     @staticmethod
@@ -109,3 +168,8 @@ class AgentLoop(BaseAgentLoop):
             cached=cached,
             cache_write=cache_write,
         )
+
+    async def _trace(self, deps: AgentDependencies, trace_id: str, **fields: Any) -> None:
+        """Пишет событие с отметкой времени; None - запись отключена"""
+        if deps.trace is not None:
+            await deps.trace.append(trace_id, [{"ts": time(), **fields}])

@@ -93,14 +93,16 @@ def create_agent(
     provider: str | None = None,
     decision_engine: BaseDecisionEngine | None = None,
     memory_enabled: bool = False,
+    trace_enabled: bool = True,
 ) -> Agent:
     """
-    Точка сборки агента: связывает LLM, инструменты, память и историю.
+    Точка сборки агента: связывает LLM, инструменты, память, историю и трейс.
 
     persist=True - сохранять диалоги в JSON (./history), иначе - только в памяти.
     provider - имя LLM-провайдера из реестра create_llm; по умолчанию open_router.
     decision_engine - движок типизированных решений.
     memory_enabled - подключать профильную память (USER.md/SOUL.md из workspace и промпт для управления).
+    trace_enabled - запись трейса agent_loop в ./trace (включён по умолчанию).
     """
     workspace = Path(workspace or "workspace").resolve()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -129,6 +131,7 @@ def create_agent(
         JSONConversationStore(max_history=MAX_HISTORY) if persist else InMemoryConversation(max_history=MAX_HISTORY)
     )
     context = ContextBuilder(prompt=SYSTEM_PROMPT + PROFILE_MEMORY_PROMPT if memory_enabled else SYSTEM_PROMPT)
+    trace = JSONConversationStore(directory=Path("trace")) if trace_enabled else None
 
     dependencies = AgentDependencies(
         llm=llm,
@@ -136,6 +139,7 @@ def create_agent(
         context=context,
         memory=memory,
         conversations=conversations,
+        trace=trace,
         decision_engine=decision_engine,
     )
 

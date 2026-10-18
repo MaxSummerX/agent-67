@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Protocol
 
 from agent.core.context.base import BaseContextBuilder
 from agent.core.conversations.base import BaseConversationStore
@@ -7,6 +8,14 @@ from agent.core.decision import BaseDecisionEngine
 from agent.core.llm.base import BaseLLM
 from agent.core.memory.base import BaseMemory
 from agent.core.tools.registry import ToolRegistry
+
+
+class TraceWriter(Protocol):
+    """
+    Запись событий трейса: всё, что нужно циклу - уметь дописывать события.
+    """
+
+    async def append(self, conversation_id: str, data: list[dict]) -> None: ...
 
 
 @dataclass
@@ -26,8 +35,9 @@ class UsageStats:
 @dataclass
 class AgentDependencies:
     """
-    Все зависимости агента: модель, инструменты, контекст, память, история.
+    Все зависимости агента: модель, инструменты, контекст, память, история, трейс.
 
+    trace - приёмник сырых событий цикла, опционален: None -> цикл работает без записи трейса.
     decision_engine - ось типизированных решений (System One), опциональна:
     None -> все точки потребления деградируют в прежнее поведение.
     """
@@ -37,6 +47,7 @@ class AgentDependencies:
     context: BaseContextBuilder
     memory: BaseMemory
     conversations: BaseConversationStore
+    trace: TraceWriter | None = None
     decision_engine: BaseDecisionEngine | None = None
 
 

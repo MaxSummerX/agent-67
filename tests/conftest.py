@@ -73,6 +73,7 @@ def build_agent() -> Callable[..., Agent]:
                 context=ContextBuilder(SYSTEM_PROMPT),
                 memory=NullMemory(),
                 conversations=InMemoryConversation(),
+                trace=InMemoryConversation(),
             ),
         )
 
